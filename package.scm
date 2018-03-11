@@ -3,10 +3,9 @@
   (export install uninstall build ls installed? build? check?)
 
   (import (gambit)
-          (prefix (git) git-)
+          (prefix (git-scheme) git-)
           (rename (prefix (version) version-)
-                  (version-version>? version>?)
-                  (version-parse-version parse-version)))
+                  (version-version>? version>?))
           #;(rename (prefix (module) module-)
                   (module-url-parts->module-type url-parts->module-type)))
 
@@ -34,7 +33,7 @@
             (cond
               ((string=? delim-val delim)
                (if (pair? rest)
-                 (parse-module-submodule (cdr rest) path (##path-expand (car rest) delim))
+                 (parse-module-submodule (cdr rest) path (car rest))
                  (error "Missing version")))
               (else
                 (parse-module-submodule url path "master"))))
@@ -55,11 +54,10 @@
     (define (err)
       (error "not implemented"))
 
-    (define (directory)
-      (getenv "R7RS_LIBRARY_LOCATION"))
+    (define location (getenv "R7RS_LIBRARY_LOCATION"))
 
     (define (has-prefix? str prefix)
-      (let ((len-str (string-length str)
+      (let ((len-str (string-length str))
             (len-prefix (string-length prefix)))
         (and (>= len-str len-prefix)
              (string=? (substring str 0 len-prefix) prefix)
@@ -80,7 +78,7 @@
              (url (string-append (module-proto module) "//" (module-name module))))
         (let ((p (open-process (list path: "git"
                                      arguments: (list "clone" url fs-path)
-                                     directory: (directory) ))))
+                                     directory: location))))
           (= (process-status p) 0)))
       #;(let ((name-version (path-strip-directory package-name)))
         (let ((p (open-process (list path: "git"
@@ -106,11 +104,28 @@
       ;; Encode tree in config file.
       (let* ((module (url-parts->module-type (car package-url-parts) (cdr package-url-parts) "tree")))
         (println module)
-        (error "TODO: implement it")))
+        (let ((version-str (module-version module)))
+          (if (string=? version-str "master")
+            ;; For latest version release
+            (let* ((relative-path
+                    (##path-expand version-str (module-name module)))
+                   (absolute-path (##path-expand relative-path location)))
+              (println relative-path)
+              (println absolute-path)
+              ;(error "TODO: implement it version/master")
+              (file-exists? absolute-path))
+
+            (let* ((base-version (version-parse version-str))
+                   (relative-path (##path-expand (##number->string (version-major base-version)) (module-name module)))
+                   (absolute-path (##path-expand relative-path location)))
+              (println base-version)
+              (println relative-path)
+              (println absolute-path)
+              (error "TODO: implement it arbitrary version"))))))
 
     (define (uninstall package-name)
       (let* ((name-version (path-strip-directory package-name))
-             (package-dir (string-append directory name-version)))
+             (package-dir (string-append location name-version)))
         (let ((p (open-process (list
                                  path: "rm"
                                  arguments: (list "-rf" package-dir)))))
@@ -119,11 +134,11 @@
 
     (define (installed? package-name)
       (let* ((name-version (path-strip-directory package-name))
-             (package (string-append directory name-version)))
+             (package (string-append location name-version)))
         (file-exists? package)))
 
     (define (ls)
-      (directory-files directory))
+      (directory-files location))
 
     (define (search pattern)
       (err))))
