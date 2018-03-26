@@ -1,10 +1,19 @@
 
 (define-library (package)
-  (export install uninstall build ls installed? build? check?)
+  (export install uninstall build ls
+          installed? build? check?
+          update parse-module-name
+
+          module-proto
+          module-web-src
+          module-path
+          module-version
+          module-submodule)
 
   (import (gambit)
           (prefix (git-scheme) git-)
           (rename (prefix (version) version-)
+                  (version-version->string version->string)
                   (version-version>? version>?))
           #;(rename (prefix (module) module-)
                   (module-url-parts->module-type url-parts->module-type)))
@@ -15,7 +24,7 @@
       constructor: make
       (proto module-proto)
       (web-src module-web-src)
-      (name module-name)
+      (path module-path)
       (version module-version)
       (submodule module-submodule))
 
@@ -68,28 +77,60 @@
                       (has-prefix? package-name "https://"))))
         rest))
 
-    (define (install package-url-parts)
-      (let* ((module (url-parts->module-type
-                 (car package-url-parts)
-                 (cdr package-url-parts) "tree"))
-             (fs-path (##path-expand
-                       (module-version module)
-                       (module-name module)))
-             (url (string-append (module-proto module) "//" (module-name module))))
-        (let ((p (open-process (list path: "git"
-                                     arguments: (list "clone" url fs-path)
-                                     directory: location))))
-          (= (process-status p) 0)))
-      #;(let ((name-version (path-strip-directory package-name)))
-        (let ((p (open-process (list path: "git"
-                                     arguments: (list "clone" package-name (strip-protocol package-name))
-                                     directory: (directory)
-                                     stdout-redirection: #t
-                                     stderr-redirection: #f))))
-          (read-all p)
-          (not (= (process-status p) 0)))))
- 
-    (define (build package-name)
+    (define (parse-module-name name-parts)
+      (url-parts->module-type (car name-parts)
+                              (cdr name-parts)
+                              "tree"))
+
+    (define (install module #!key (exact-version? #t))
+      (let* ((version-str (module-version module))
+             (base-path (##path-expand (module-path module) location))
+             (url (string-append (module-proto module) "//" (module-path module)))
+             (clone-path (##path-expand ".clone" base-path)))
+        ;; Download repo from github if not already installed.
+        (or (file-exists? clone-path)
+            (git-clone url clone-path))
+        (if (string=? version-str "master")
+          ;; Install master version
+          (let ((archive (git-archive clone-path "master")))
+            (git-extract-archive (##path-expand archive clone-path) base-path))
+
+          ;; Install max version in same major version.
+          (let ((base-version (version-parse version-str)))
+            (if (file-exists? clone-path)
+              (let ((max-tag (if exact-version? base-version (git-max-tag clone-path base-version))))
+                (begin
+                  ;; base-version
+                  (let* ((archive (git-archive clone-path (version->string max-tag))))
+                    (if archive
+                      (let ((archive-path (##path-expand archive clone-path)))
+                        (git-extract-archive archive-path base-path)
+                        (delete-file archive-path))
+                      (error "[package]: Unexpected error")))))
+              (if exact-version?
+                (let ((archive (git-archive clone-path (version->string max-version))))
+                  (if archive
+                    (let ((archive-path (##path-expand archive clone-path)))
+                      (git-extract-archive archive-path base-version)
+                      (delete-file archive-path))
+                    (error "[package]: Unexpected error")))
+                (let loop ((max-version base-version)
+                           (tags (git-ls-remote-tag url)))
+                  (if (pair? tags)
+                    (let ((version (version-parse (car tags))))
+                      (if (version>? version base-version)
+                        (loop version (cdr tags))
+                        (loop base-version (cdr tags))))
+                    (begin
+                      (let ((archive (git-archive clone-path (version->string max-version))))
+                        (if archive
+                          (let ((archive-path (##path-expand archive clone-path)))
+                            (git-extract-archive archive-path base-version)
+                            (delete-file archive-path))
+                          (error "[package]: Unexpected error"))))))))))))
+
+    (define (build module)
+
       (err)
       #;(let* ((name-version (path-strip-directory package-name))
              (dir (string-append directory name-version))
@@ -100,15 +141,16 @@
                   arguments: (list "dyn")
                   directory: dir)))))
 
-    (define (check? package-url-parts)
+    ;; Check if repo exists
+    ;; Return (vector
+    (define (check? module)
       ;; Encode tree in config file.
-      (let* ((module (url-parts->module-type (car package-url-parts) (cdr package-url-parts) "tree")))
         (println module)
         (let ((version-str (module-version module)))
           (if (string=? version-str "master")
             ;; For latest version release
             (let* ((relative-path
-                    (##path-expand version-str (module-name module)))
+                    (##path-expand version-str (module-path module)))
                    (absolute-path (##path-expand relative-path location)))
               (println relative-path)
               (println absolute-path)
@@ -116,29 +158,57 @@
               (file-exists? absolute-path))
 
             (let* ((base-version (version-parse version-str))
-                   (relative-path (##path-expand (##number->string (version-major base-version)) (module-name module)))
+                   (relative-path (##path-expand (##number->string (version-major base-version)) (module-path module)))
                    (absolute-path (##path-expand relative-path location)))
               (println base-version)
               (println relative-path)
               (println absolute-path)
-              (error "TODO: implement it arbitrary version"))))))
+              (error "TODO: implement it arbitrary version")))))
 
-    (define (uninstall package-name)
-      (let* ((name-version (path-strip-directory package-name))
-             (package-dir (string-append location name-version)))
-        (let ((p (open-process (list
-                                 path: "rm"
-                                 arguments: (list "-rf" package-dir)))))
-          (println "Uninstall package-dir")
-          (process-status p))))
+    (define (uninstall module)
+      (let ((base-directory (##path-expand (module-path module) location)))
+        (let ((module-directory (##path-expand (module-version module) base-directory)))
+          (if (file-exists? module-directory)
+            (let loop ((cur-dir module-directory)
+                       (cur-dir-port (open-directory (list path: module-directory ignore-hidden: 'dot-and-dot-dot)))
+                       (dir-stack '())
+                       (dir-stack-to-delete '()))
+              (let ((file (read cur-dir-port)))
+                (if (string? file)
+                  (let* ((filepath (##path-expand file cur-dir))
+                         (type (file-type filepath)))
+                    (cond
+                      ((eq? type 'directory)
+                       (loop cur-dir cur-dir-port (cons filepath dir-stack) dir-stack-to-delete))
+                      (else
+                        (delete-file filepath)
+                        (loop cur-dir cur-dir-port dir-stack dir-stack-to-delete))))
+                  (begin
+                    (close-port cur-dir-port)
+                    (if (pair? dir-stack)
+                      (let ((new-dir (car dir-stack))
+                            (rest-dir (cdr dir-stack)))
+                        (loop new-dir (open-directory (list path: new-dir ignore-hidden: 'dot-and-dot-dot))
+                              rest-dir (cons cur-dir dir-stack-to-delete)))
+                      ;; Exit for the test
+                      (begin
+                        (for-each (lambda (dir)
+                                    (delete-directory dir))
+                                  dir-stack-to-delete)
+                        (delete-directory cur-dir)))))))))))
 
-    (define (installed? package-name)
-      (let* ((name-version (path-strip-directory package-name))
-             (package (string-append location name-version)))
-        (file-exists? package)))
+    (define (installed? module)
+      (let* ((base-directory (##path-expand (module-path module) location))
+             (module-directory (##path-expand (module-version module) base-directory)))
+        (and (file-exists? module-directory)
+             module-directory)))
 
-    (define (ls)
-      (directory-files location))
+    (define (update module)
+      (let* ((base-directory (##path-expand (module-path module) location))
+             (clone-directory (##path-expand ".clone" base-directory)))
+        (if (file-exists? clone-directory)
+          (git-pull clone-directory)
+          (error "package not installed"))))
 
     (define (search pattern)
       (err))))
