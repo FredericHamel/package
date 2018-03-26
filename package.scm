@@ -11,7 +11,7 @@
           module-submodule)
 
   (import (gambit)
-          (prefix (https://github.com/FredericHamel/git-scheme/tree/1.0.0) git-)
+          (prefix (https://github.com/FredericHamel/git-scheme/tree/1.1.0) git-)
           (rename (prefix (https://github.com/FredericHamel/version/tree/1.0.0) version-)
                   (version-version->string version->string)
                   (version-version>? version>?))
