@@ -213,16 +213,6 @@
     (define (search pattern)
       (err))))
 
-#;(define-type package
-  id: ea010c3d-b074-4892-9830-17e05ea218fc
-  name
-  version
-  repo)
-
-#;(define-macro (err)
-  `(error "not implemented"))
-
-
 ;; Common function
 ; package-install
 ; package-list
