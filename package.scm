@@ -67,17 +67,20 @@
                                        (path-expand version archive-path))))))
 
 
-           (and (not (file-exists? clone-path))
-                (git-clone url clone-path)
 
-                (or (not (string? install-path))
-                    (and (not (file-exists? install-path))
-                         (let ((archive-name
-                                 (git-archive (car tag) install-path clone-path)))
-                           (and archive-name
-                                (git-extract-archive
-                                  archive-name
-                                  (path-directory install-path)))))))))))
+
+           (and
+             (or (file-exists? clone-path)
+                 (git-clone url clone-path))
+
+             (or (not (string? install-path))
+                 (and (not (file-exists? install-path))
+                      (let ((archive-name
+                              (git-archive (car tag) install-path clone-path)))
+                        (and archive-name
+                             (git-extract-archive
+                               archive-name
+                               (path-directory install-path)))))))))))
 
 
 ;; Return #f if module is not hosted
