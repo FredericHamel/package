@@ -8,6 +8,11 @@
 (define-library (package)
   (export install installed?
           uninstall update
+          https-proto git-proto
+
+          module-default-proto
+          module-default-proto-set!
+
           module-path)
 
   (import (gambit)
