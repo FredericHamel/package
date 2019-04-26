@@ -16,10 +16,7 @@
           module-path)
 
   (import (gambit)
-          (prefix (git-scheme) git-)
-          (rename (prefix (semver) version-)
-                  (version-version->string version->string)
-                  (version-version>? version>?)))
+          (prefix (git-scheme) git-))
 
   (include "package.scm"))
 
