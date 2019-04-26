@@ -77,7 +77,7 @@
                   (or (file-exists? clone-path)
                       (git-clone url clone-path prompt?: prompt?))
                   (let ((archive-name
-                          (git-archive (car tag install-path clone-path))))
+                          (git-archive (car tag) install-path clone-path)))
                     (and archive-name
                          (git-extract-archive
                            archive-name
