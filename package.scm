@@ -8,15 +8,26 @@
   (path-expand
     (if user? "~~userlib" "~~lib")))
 
-(define module-proto "https:")
-(define (module-proto-set! proto)
-  (set! module-proto proto))
+(define (https-proto mod)
+  (string-append "https://" mod))
+
+(define (ssh-proto mod)
+  (string-append "ssh://git@" mod))
+
+(define module-default-proto https-proto)
+
+(define (module-default-proto-set! proto)
+  (set! module-default-proto proto))
 
 (define tree-master "tree/master")
 (define (tree-master-set! x)
   (set! tree-master x))
 
-(define (install mod #!optional (user? #t))
+(define debug-mode? #f)
+(define (debug-mode?-set! x)
+  (set! debug-mode? x))
+
+(define (install mod user? #!optional (prompt? #f) (proto #f))
   (define (join-rev path lst)
     (if (pair? lst)
       (join-rev
@@ -43,10 +54,7 @@
                                     (macro-modref-host modref)))
 
                 ;; url used to clone the repo.
-                (url (string-append
-                       module-proto
-                       "//"
-                       base-url))
+                (url ((or proto module-default-proto) base-url))
 
                 (archive-path
                   (path-expand base-url repo-path))
@@ -59,43 +67,41 @@
                               archive-path))
 
                 (install-path (and supplied-version?
-                                   (let ((version (join-rev
-                                                    (car tag)
-                                                    (cdr tag))))
+                                   (let ((version (join-rev (car tag) (cdr tag))))
                                      (and
                                        (not (string=? tree-master version))
                                        (path-expand version archive-path))))))
 
+           (if install-path
+             (and (not (file-exists? install-path))
+                  (or (file-exists? clone-path)
+                      (git-clone url clone-path prompt?: prompt?))
+                  (let ((archive-name
+                          (git-archive (car tag install-path clone-path))))
+                    (and archive-name
+                         (git-extract-archive
+                           archive-name
+                           (path-directory install-path)))))
 
-
-
-           (and
-             (or (file-exists? clone-path)
-                 (git-clone url clone-path))
-
-             (or (not (string? install-path))
-                 (and (not (file-exists? install-path))
-                      (let ((archive-name
-                              (git-archive (car tag) install-path clone-path)))
-                        (and archive-name
-                             (git-extract-archive
-                               archive-name
-                               (path-directory install-path)))))))))))
+             (and (not (file-exists? clone-path))
+                  (git-clone url clone-path prompt?: prompt?)))))))
 
 
 ;; Return #f if module is not hosted
-(define (uninstall module)
+(define (uninstall module user?)
 
   ;; return the prefix if prefix/folder exists else #f.
   (define (start-width? folder prefix)
     (and (file-exists? (path-expand folder prefix)) prefix))
 
   (define (delete-single-folder folder)
-    ; (println "rmdir " folder)
+    (if debug-mode?
+      (println "rmdir " folder))
     (delete-directory folder))
 
   (define (delete-single-file file)
-    ; (println "rm " file)
+    (if debug-mode?
+      (println "rm " file))
     (delete-file file))
 
   (define (delete-folder-tree folder)
@@ -135,22 +141,14 @@
   (let ((modref (##string->modref module)))
     (and modref
          (pair? (macro-modref-host modref))
-         (let ((result #f)) ; (##search-module modref)))
-           (if #f ; (vector? result)
-             (let ((path (vector-ref result 0)))
-               (println "path: '" path)
-               (close-input-port (vector-ref result 4))
-               (delete-folder-tree path))
+         (let ((prefix (start-width? module (module-path user?))))
+           (and prefix
+                (let loop ((modref-path (macro-modref-path modref)))
+                  (if (pair? (cdr modref-path))
+                    (loop (cdr modref-path))
+                    (macro-modref-path-set! modref modref-path)))
 
-             (let ((prefix (or (start-width? module (module-path #f))
-                               (start-width? module (module-path #t)))))
-               (and prefix
-                    (let loop ((modref-path (macro-modref-path modref)))
-                      (if (pair? (cdr modref-path))
-                        (loop (cdr modref-path))
-                        (macro-modref-path-set! modref modref-path)))
-
-                    (delete-folder-tree (path-expand (##modref->string modref) prefix)))))))))
+                (delete-folder-tree (path-expand (##modref->string modref) prefix)))))))
 
 (define (installed? module)
   (let ((modref (##string->modref module)))
@@ -178,3 +176,11 @@
                (and prefix
                     (git-pull (path-expand module-master-path prefix)))))))))
 
+(define (install-hook modref)
+  (let ((mod-name (##modref->string modref)))
+    (let ((result (install mod-name #t #t)))
+      (if debug-mode?
+        (println "install-hook==>" result))
+      (and result (##search-module modref)))))
+
+(##install-module-set! install-hook)
