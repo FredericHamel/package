@@ -4,9 +4,9 @@
 (define (string->modref url)
   (##string->modref url))
 
-(define (module-path user?)
+(define (module-path to)
   (path-expand
-    (if user? "~~userlib" "~~lib")))
+    (or to "~~userlib")))
 
 (define (https-proto mod)
   (string-append "https://" mod))
@@ -27,7 +27,7 @@
 (define (debug-mode?-set! x)
   (set! debug-mode? x))
 
-(define (install mod user? #!optional (prompt? #f) (proto #f))
+(define (install mod #!optional (to #f) (prompt? #f) (proto #f))
   (define (join-rev path lst)
     (if (pair? lst)
       (join-rev
@@ -38,7 +38,7 @@
   (let ((modref (string->modref mod)))
     (and modref
          (pair? (macro-modref-host modref))
-         (let* ((repo-path (module-path user?))
+         (let* ((repo-path (module-path to))
 
                 (module-name
                   (let loop ((path (macro-modref-path modref)))
@@ -88,7 +88,7 @@
 
 
 ;; Return #f if module is not hosted
-(define (uninstall module user?)
+(define (uninstall module to)
 
   ;; return the prefix if prefix/folder exists else #f.
   (define (start-width? folder prefix)
@@ -141,7 +141,7 @@
   (let ((modref (##string->modref module)))
     (and modref
          (pair? (macro-modref-host modref))
-         (let ((prefix (start-width? module (module-path user?))))
+         (let ((prefix (start-width? module (module-path to))))
            (and prefix
                 (let loop ((modref-path (macro-modref-path modref)))
                   (if (pair? (cdr modref-path))
